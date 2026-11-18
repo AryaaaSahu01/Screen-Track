@@ -15,7 +15,7 @@ export function ApiStatus() {
         async function checkHealth() {
             try {
                 const response = await fetch('/health', { signal: controller.signal })
-                if (!response.ok) throw new Error('HTTP ${response.status}')
+                if (!response.ok) throw new Error(`HTTP ${response.status}`)
                 
                 const body: unknown = await response.json()
                 if (
@@ -37,7 +37,7 @@ export function ApiStatus() {
 
         return () => {
             active = false
-            window.clearTimeout
+            window.clearTimeout(timeout)
             controller.abort()
         }
     },[])

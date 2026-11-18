@@ -11,7 +11,9 @@ function App() {
           <p className="muted">Capture foundation · C0A</p>
           <h1>Track My Screen</h1>
         </div>
+        <ApiStatus/>
       </header>
+      <CapturePreview/>
     </main>
   )
 }
