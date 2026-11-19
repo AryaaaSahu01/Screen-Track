@@ -79,7 +79,7 @@ export function CapturePreview() {
             <p role = "status"> Preview: {phase}</p>
             {error && <p role="alert">{error}</p>}
             <video ref={videoRef} autoPlay muted playsInline aria-label="Selected screen preview" />
-            <p className="muted">Preview only. Saving and timelapse encoding follow in C0B.</p>
+            <p className="muted">Preview only. </p>
         </section>
     )
 }

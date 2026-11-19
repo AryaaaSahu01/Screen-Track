@@ -30,7 +30,7 @@ export function captureErrorMessage(error: unknown): string {
         }
 
         if (error.name === 'NotReadableError') {
-            return 'Screen selection was cancelled or denied. You can try again.'
+            return 'The source could not be read. Check screen-sharing permissions.'
         }
     }
     return error instanceof Error ? error.message : 'Screen capture could not start. '
