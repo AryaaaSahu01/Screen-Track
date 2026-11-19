@@ -1,0 +1,62 @@
+name: CI
+
+on: 
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{github.ref}}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run: 
+        working-directory: server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: server/go.mod
+          cache: false
+      - name: Check Go formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            gofmt -d .
+            exit 1
+          fi
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./cmd/api
+
+frontend: 
+  strategy:
+    matrix:
+      os: [ubuntu-latest, windows-latest]
+  runs-on: ${{ matrix.os }}
+  defaults:
+    run:
+      working-directory: web
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: '24'
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+    - run: npm ci
+    - run: npm run check
+    - name: Report dependency advisories
+      if: matrix.os == 'ubuntu-latest'
+      continue-on-error: true # Reports teh documented upstream picomatch
+      run: npm audit --audit-level=high
