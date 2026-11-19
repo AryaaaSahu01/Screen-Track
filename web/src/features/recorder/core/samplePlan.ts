@@ -16,7 +16,7 @@ export type SampleRequest = Readonly <{
 }>
 
 export type PresentationTiming = Readonly<{
-    timestampsUs: number
+    timestampUs: number
     durationUs: number
 }>
 

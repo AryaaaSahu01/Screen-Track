@@ -124,14 +124,14 @@ test('unknown recording modes are rejected at runtime', () => {
 
 test('60 accepted fast frames produce exactly two seconds', () => {
     const last = presentationTiming('fast', 59)
-    assert.equal(last.timestampsUs + last.durationUs, 2_00_000)
+    assert.equal(last.timestampUs + last.durationUs, 2_000_000)
 })
 
 test('30fps integer-microsecond timestamps have no rounding gaps', () => {
     let end = 0
     for (let index = 0; index < 120; index++) {
         const sample = presentationTiming('fast', index)
-        assert.equal(sample.timestampsUs, end)
+        assert.equal(sample.timestampUs, end)
         assert(sample.durationUs > 0)
         end += sample.durationUs
     }
@@ -140,11 +140,11 @@ test('30fps integer-microsecond timestamps have no rounding gaps', () => {
 
 test('120 accepted screenshots at half-second holds produce one minute', () => {
     const last = presentationTiming('screenshot', 119)
-    assert.equal(last.timestampsUs + last.durationUs, 60_000_000)
+    assert.equal(last.timestampUs + last.durationUs, 60_000_000)
 })
 
 test('output timing uses accepeted indices and rejects unsafe numbers', () => {
-    for (const valid of [-1, 0.5, Number.NaN, Number.MAX_SAFE_INTEGER]) {
+    for (const invalid of [-1, 0.5, Number.NaN, Number.MAX_SAFE_INTEGER]) {
         assert.throws(() => presentationTiming('fast', invalid), RangeError)
     }
     assert.throws(() => presentationTiming('other', 0), TypeError)
