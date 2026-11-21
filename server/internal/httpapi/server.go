@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime"
 	"net"
@@ -17,14 +18,17 @@ import (
 	"unicode/utf8"
 
 	"github.com/AryaaaSahu01/Screen-Track/server/internal/config"
+	"github.com/AryaaaSahu01/Screen-Track/server/internal/db"
+	"github.com/AryaaaSahu01/Screen-Track/server/internal/identity"
+	"github.com/AryaaaSahu01/Screen-Track/server/internal/store"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Server struct {
 	cfg      config.Config
-	db       *store.store
-	provider *identity.provider
+	db       *store.Store
+	provider *identity.Provider
 	log      *slog.Logger
 	mux      *http.ServeMux
 }
@@ -50,16 +54,16 @@ func fail(status int, code, detail string) error {
 
 func invalid(detail string) error { return fail(http.StatusBadRequest, "invalid_request", detail) }
 
-func forbidden() error {
-	return fail(http.StatusForbidden, "forbidden", "Your workspace permission do not allow this operation.")
-}
-
 func notFound() error {
 	return fail(http.StatusNotFound, "not_found", "The requested resource is unavailable.")
 }
 
+func forbidden() error {
+	return fail(http.StatusForbidden, "forbidden", "Your workspace permissions do not allow this operation.")
+}
+
 func unauthenticated() error {
-	return fail(http.StatusUnauthorized, "sign_in_required", "Sign in to continue. ")
+	return fail(http.StatusUnauthorized, "sign_in_required", "Sign in to continue.")
 }
 
 func conflict(code, detail string) error { return fail(http.StatusConflict, code, detail) }
@@ -88,7 +92,7 @@ func (w *statusWriter) Write(body []byte) (int, error) {
 	return w.ResponseWriter.Write(body)
 }
 
-func (w *statusWriter) UnWrap() http.ResponseWriter { return w.ResponseWriter }
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 type endpoint func(*http.Request) (response, error)
 type actorEndpoint func(*http.Request, *db.Queries, db.BindSessionRow) (response, error)
@@ -200,8 +204,8 @@ func classify(err error) *failure {
 		return &failure{status: 404, code: "not_found", detail: "The requested resource is unavailable."}
 	case errors.Is(err, identity.ErrVerification):
 		return &failure{status: 401, code: "identity_unverified", detail: "Sign-in could not be verified. Start sign-in again."}
-	case error.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return &failure{status: 503, code: "temprarily_unavailable", detail: "The request did not complete. Try again.", retry: 2}
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return &failure{status: 503, code: "temporarily_unavailable", detail: "The request did not complete. Try again.", retry: 2}
 	}
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) {
@@ -211,17 +215,17 @@ func classify(err error) *failure {
 		case "ST002":
 			return &failure{status: 409, code: "limit_reached", detail: "The account or workspace limit was reached."}
 		case "ST003":
-			return &failure{status: 401, code: "identity_unavailable", detail: "The account or session is unavailable"}
+			return &failure{status: 401, code: "identity_unavailable", detail: "The account or session is unavailable."}
 		case "ST004":
 			return &failure{status: 401, code: "sign_in_required", detail: "Sign in to continue."}
 		case "ST005":
-			return &failure{status: 409, code: "owner_transfer_required", detail: "Transfer ownership before leaving or removing the owner"}
+			return &failure{status: 409, code: "owner_transfer_required", detail: "Transfer ownership before leaving or removing the owner."}
 		case "ST006":
 			return &failure{status: 403, code: "forbidden", detail: "Your workspace permissions do not allow this operation."}
 		case "ST007":
 			return &failure{status: 404, code: "not_found", detail: "The requested resource is unavailable."}
 		case "ST008", "23505":
-			return &failure{status: 409, code: "conflict", detail: "The request conflicts with an existing resrouce."}
+			return &failure{status: 409, code: "conflict", detail: "The request conflicts with an existing resource."}
 		case "40001", "40P01", "55P03", "57014":
 			return &failure{status: 503, code: "temporarily_unavailable", detail: "The request did not complete. Try again.", retry: 2}
 		}
@@ -256,7 +260,7 @@ func (s *Server) authed(l limit, run actorEndpoint) endpoint {
 			}
 		}
 		var result response
-		err := s.db.Transaction(r.Context(), func(q *db.Quries) error {
+		err := s.db.Transaction(r.Context(), func(q *db.Queries) error {
 			actor, err := q.BindSession(r.Context(), token)
 			if store.IsMissing(err) {
 				return unauthenticated()
@@ -289,7 +293,7 @@ func (s *Server) tenant(write bool, l limit, run tenantEndpoint) endpoint {
 			if err := q.LockWorkspace(ctx, wid); err != nil {
 				return response{}, err
 			}
-			//membership could change while the request is waiting.
+			//Membership could change while the request is waiting.
 			workspace, err = q.GetWorkspace(ctx, wid)
 			if err != nil {
 				return response{}, err
@@ -299,7 +303,7 @@ func (s *Server) tenant(write bool, l limit, run tenantEndpoint) endpoint {
 	})
 }
 
-func (s *Server) consumeRate(ctx, context.Context, policy limit, key string) error {
+func (s *Server) consumeRate(ctx context.Context, policy limit, key string) error {
 	hash := sha256.Sum256([]byte("screen-track:rate:" + policy.name + ":" + key))
 	result, err := s.db.Queries.ConsumeRateLimit(ctx, db.ConsumeRateLimitParams{
 		Bucket: hash[:], MaxHits: policy.hits, WindowSeconds: int32(policy.window.Seconds()),
@@ -309,7 +313,7 @@ func (s *Server) consumeRate(ctx, context.Context, policy limit, key string) err
 	}
 	if result.Hits > policy.hits {
 		retry := max(1, int(time.Until(result.ExpiresAt.Time).Seconds())+1)
-		return &failure{state: 429, code: "rate_limited", detail: "Too many requests. Try again shortly.", retry: retry}
+		return &failure{status: 429, code: "rate_limited", detail: "Too many requests. Try again shortly.", retry: retry}
 	}
 	return nil
 }
@@ -321,7 +325,7 @@ func (s *Server) peer(r *http.Request) string {
 	}
 	proxy := net.ParseIP(s.cfg.TrustedProxy)
 	if proxy != nil && proxy.Equal(net.ParseIP(host)) {
-		if forwarded := r.Header.values("X-Real-IP"); len(forwarded) == 1 {
+		if forwarded := r.Header.Values("X-Real-IP"); len(forwarded) == 1 {
 			if parsed := net.ParseIP(forwarded[0]); parsed != nil {
 				return parsed.String()
 			}
@@ -334,9 +338,9 @@ func readJSON[T any](r *http.Request) (T, error) {
 	var result T
 	kind, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || kind != "application/json" {
-		return result, fail(415, "json-required", "Use application/json for this request.")
+		return result, fail(415, "json_required", "Use application/json for this request.")
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 32 << 10))
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 32<<10))
 	dec.DisallowUnknownFields()
 	var payload *T
 	err = dec.Decode(&payload)
@@ -349,7 +353,7 @@ func readJSON[T any](r *http.Request) (T, error) {
 			err = fmt.Errorf("unexpected trailing JSON")
 		}
 	}
-	var tooLarge *http.MaxBytesError 
+	var tooLarge *http.MaxBytesError
 	if errors.As(err, &tooLarge) {
 		return result, fail(413, "body_too_large", "The request body is too large.")
 	}
@@ -362,12 +366,12 @@ func readJSON[T any](r *http.Request) (T, error) {
 func parseID(raw string) (pgtype.UUID, error) {
 	var id pgtype.UUID
 	if len(raw) != 36 || id.Scan(raw) != nil || !id.Valid || id.Bytes == [16]byte{} || id.String() != strings.ToLower(raw) {
-		return pgtype.UUID{}, invalid("Use a nonzero for resource IDs.")
+		return pgtype.UUID{}, invalid("Use a nonzero UUID for resource IDs.")
 	}
 	return id, nil
 }
 
-func pageSizer(r *http.Request) (int32, error) {
+func pageSize(r *http.Request) (int32, error) {
 	raw := r.URL.Query().Get("limit")
 	if raw == "" {
 		return 30, nil
@@ -380,7 +384,7 @@ func pageSizer(r *http.Request) (int32, error) {
 }
 
 func readIDCursor(r *http.Request) (int32, pgtype.UUID, error) {
-	size, err := pageSizer(r)
+	size, err := pageSize(r)
 	if err != nil {
 		return 0, pgtype.UUID{}, err
 	}
@@ -393,7 +397,7 @@ func readIDCursor(r *http.Request) (int32, pgtype.UUID, error) {
 }
 
 type page[T any] struct {
-	Items []T `json:"items"`
+	Items      []T    `json:"items"`
 	NextCursor string `json:"next_cursor,omitempty"`
 }
 
@@ -424,11 +428,11 @@ func location(zone string) (*time.Location, error) {
 	}
 	loc, err := time.LoadLocation(zone)
 	if err != nil {
-		return nil, invalid("The time zone is unvailable.")
+		return nil, invalid("The time zone is unavailable.")
 	}
 	return loc, nil
 }
 
-func stamp (t time.Time) pgtype.Timestamptz {
+func stamp(t time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
 }

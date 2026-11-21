@@ -46,7 +46,7 @@ func Load() (Config, error) {
 	cfg.Origin = env("APP_ORIGIN", "http://localhost:5173")
 	cfg.OIDCIssuer = strings.TrimSpace(os.Getenv("OIDC_ISSUER"))
 	cfg.OIDCClientID = strings.TrimSpace(os.Getenv("OIDC_CLIENT_ID"))
-	cfg.OIDCClientSecret = strings.TrimSpace("OIDC_CLIENT_SECRET")
+	cfg.OIDCClientSecret = os.Getenv("OIDC_CLIENT_SECRET")
 	cfg.OIDCStepUpACR = strings.TrimSpace(os.Getenv("OIDC_STEP_UP_ACR"))
 	cfg.TrustedProxy = strings.TrimSpace(os.Getenv("TRUSTED_PROXY_IP"))
 	if cfg.OIDCClientID == "" || cfg.OIDCClientSecret == "" || cfg.OIDCStepUpACR == "" {
@@ -74,6 +74,10 @@ func Load() (Config, error) {
 		return cfg, fmt.Errorf("TRUSTED_PROXY_IP must contain a single proxy IP")
 	}
 	cfg.DatabaseURL, err = DatabaseURL("DATABASE_URL", "screen_track_app", production)
+	if err != nil {
+		return cfg, err
+	}
+	limits, err := loadLimits(production)
 	if err != nil {
 		return cfg, err
 	}
@@ -136,7 +140,7 @@ func loadLimits(production bool) (limits, error) {
 		if err != nil {
 			return values, err
 		}
-		*entry.value = *entry.value
+		*entry.value = value
 	}
 	return values, nil
 }

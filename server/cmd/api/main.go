@@ -12,7 +12,10 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"honnef.co/go/tools/config"
+	"github.com/AryaaaSahu01/Screen-Track/server/internal/config"
+	"github.com/AryaaaSahu01/Screen-Track/server/internal/httpapi"
+	"github.com/AryaaaSahu01/Screen-Track/server/internal/identity"
+	"github.com/AryaaaSahu01/Screen-Track/server/internal/store"
 )
 
 func main() {
@@ -65,7 +68,7 @@ func run(log *slog.Logger) error {
 	go func() {
 		defer close(maintenanceDone)
 		data.Maintain(life, func(err error) {
-			log.Error("could not clean expired authentication state", "class")
+			log.Error("could not clean expired authentication state", "class", "database")
 		})
 	}()
 	defer func() {

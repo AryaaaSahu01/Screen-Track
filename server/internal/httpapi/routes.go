@@ -16,7 +16,7 @@ func (s *Server) routes() {
 	write := limit{"workspace_write", 90, time.Minute}
 	workspaceCreate := limit{"workspace_create", 10, time.Hour}
 	invites := limit{"workspace_invitation", 30, time.Hour}
-	acceptingInvite := limit{"accept_invitation", 30, time.Hour}
+	acceptInvite := limit{"accept_invitation", 30, time.Hour}
 	recordingChanges := limit{"recording_write", 60, time.Minute}
 
 	s.handle("GET /api/v1/auth/login", s.login)
@@ -30,7 +30,7 @@ func (s *Server) routes() {
 	const workspace = "/api/v1/workspaces/{workspace}"
 	s.handle("GET "+workspace, s.tenant(false, read, getWorkspace))
 	s.handle("PUT "+workspace, s.tenant(true, write, updateWorkspace))
-	s.handle("POST "+workspace+"/archive", s.tenant(true, write, leaveWorkspace))
+	s.handle("POST "+workspace+"/archive", s.tenant(true, write, archiveWorkspace))
 	s.handle("POST "+workspace+"/leave", s.tenant(true, write, leaveWorkspace))
 	s.handle("GET "+workspace+"/members", s.tenant(false, read, listMembers))
 	s.handle("PUT "+workspace+"/members/{account}/role", s.tenant(true, write, setMemberRole))
@@ -40,11 +40,11 @@ func (s *Server) routes() {
 	s.handle("DELETE "+workspace+"/invitations/{invitation}", s.tenant(true, invites, cancelInvitation))
 	s.handle("POST /api/v1/invitations/accept", s.authed(acceptInvite, s.acceptInvitation))
 	s.handle("GET "+workspace+"/reviewer-assignments", s.tenant(false, read, listAssignments))
-	s.handle("PUT "+workspace+"/reviewer-assignments", s.tenant(true, write, setAssignmment(true)))
+	s.handle("PUT "+workspace+"/reviewer-assignments/{reviewer}/{member}", s.tenant(true, write, setAssignmment(true)))
 	s.handle("DELETE "+workspace+"/reviewer-assignments/{reviewer}/{member}", s.tenant(true, write, setAssignment(false)))
 	s.handle("GET "+workspace+"/ownership-transfer", s.tenant(false, read, getTransfer))
 	s.handle("POST "+workspace+"/ownership-transfer", s.tenant(true, write, requestTransfer))
-	s.handle("DELETE "+workspace+"/ownership-transfer/{transfer}", s.tenant(true, write, cancelTransfter))
+	s.handle("DELETE "+workspace+"/ownership-transfer/{transfer}", s.tenant(true, write, cancelTransfer))
 	s.handle("POST "+workspace+"/ownership-transfer/{transfer}/accept", s.tenant(true, write, s.acceptTransfer))
 	s.handle("GET "+workspace+"/audit", s.tenant(false, read, listAudit))
 

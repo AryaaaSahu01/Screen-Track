@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AryaaaSahu01/Screen-Track/server/db/migrations"
+	"github.com/AryaaaSahu01/Screen-Track/server/internal/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
